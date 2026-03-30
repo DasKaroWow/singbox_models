@@ -1,0 +1,1926 @@
+# src/singbox_models/ntp/ntp.py
+from singbox_models.base import DialFields
+
+
+class NTP(DialFields):
+    enabled: bool | None = None
+    server: str
+    server_port: int | None = None
+    interval: str | None = None
+
+
+# src/singbox_models/ntp/__init__.py
+from .ntp import NTP
+
+__all__ = ["NTP"]
+
+
+# src/singbox_models/log/__init__.py
+from .log import Log
+
+__all__ = ["Log"]
+
+
+# src/singbox_models/route/action.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel
+
+
+class RouteOptions(BaseModel):
+    override_address: str | None = None
+    override_port: int | None = None
+    network_strategy: Literal["default", "hybrid", "fallback"] | None = None
+    network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    fallback_network_type: list[Literal["wifi", "cellular", "ethernet"]] | None = None
+    fallback_delay: str | None = None
+    udp_disable_domain_unmapping: bool | None = None
+    udp_connect: bool | None = None
+    udp_timeout: str | None = None
+    tls_fragment: bool | None = None
+    tls_fragment_fallback_delay: str | None = None
+    tls_record_fragment: bool | None = None
+
+
+class RouteAction(RouteOptions):
+    action: Literal["route"] = "route"
+    outbound: str
+
+
+class BypassAction(RouteOptions):
+    action: Literal["bypass"] = "bypass"
+    outbound: str | None = None
+
+
+class RejectAction(BaseModel):
+    action: Literal["reject"] = "reject"
+    method: Literal["default", "drop", "reply"] | None = None
+    no_drop: bool | None = None
+
+
+class HijackDNSAction(BaseModel):
+    action: Literal["hijack-dns"] = "hijack-dns"
+
+
+class RouteOptionsAction(RouteOptions):
+    action: Literal["route-options"] = "route-options"
+
+
+class SniffAction(BaseModel):
+    action: Literal["sniff"] = "sniff"
+    sniffer: list[str] | None = None
+    timeout: str | None = None
+
+
+class ResolveAction(BaseModel):
+    action: Literal["resolve"] = "resolve"
+    server: str | None = None
+    strategy: Literal["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"] | None = None
+    disable_cache: bool | None = None
+    rewrite_ttl: None = None
+    client_subnet: str | None = None
+
+
+Action = Annotated[
+    RouteAction | BypassAction | RejectAction | HijackDNSAction | RouteOptionsAction | SniffAction | ResolveAction,
+    Field(discriminator="action"),
+]
+
+
+# src/singbox_models/inbound/inbound.py
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel, DialFields, ListenFields, Transport
+from singbox_models.base.multiplex import MultiplexInbound
+from singbox_models.base.tls import TLSInbound
+
+
+# Inbounds
+class BaseInbound(ListenFields):
+    tag: str | None = None
+
+
+class Direct(BaseInbound):
+    type: Literal["direct"] = "direct"
+    network: Literal["tcp", "udp"] | None = None
+    override_address: str | None = None
+    override_port: int | None = None
+
+
+class Mixed(BaseInbound):
+    class User(BaseModel):
+        username: str
+        password: str
+
+    type: Literal["mixed"] = "mixed"
+    users: list[User] | None = None
+    set_system_proxy: bool | None = None
+
+
+class Socks(BaseInbound):
+    class User(BaseModel):
+        username: str
+        password: str
+
+    type: Literal["socks"] = "socks"
+    users: list[User] | None = None
+
+
+class HTTP(BaseInbound):
+    class User(BaseModel):
+        username: str
+        password: str
+
+    type: Literal["http"] = "http"
+    users: list[User] | None = None
+    tls: TLSInbound | None = None
+    set_system_proxy: bool | None = None
+
+
+class Shadowsocks(BaseInbound):
+    class User(BaseModel):
+        name: str
+        password: str
+
+    class Destination(BaseModel):
+        name: str
+        server: str
+        server_port: int
+        password: str
+
+    type: Literal["shadowsocks"] = "shadowsocks"
+    network: Literal["tcp", "udp"] | None = None
+    method: Literal[
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "2022-blake3-chacha20-poly1305",
+        "none",
+        "aes-128-gcm",
+        "aes-192-gcm",
+        "aes-256-gcm",
+        "chacha20-ietf-poly1305",
+        "xchacha20-ietf-poly1305",
+    ]
+    password: str
+    users: list[User] | None = None
+    destinations: list[Destination] | None = None
+    managed: bool | None = None
+    multiplex: MultiplexInbound | None = None
+
+
+class VMess(BaseInbound):
+    class User(BaseModel):
+        name: str
+        uuid: str
+        alterId: int  # noqa: N815
+
+    type: Literal["vmess"] = "vmess"
+    users: list[User]
+    tls: TLSInbound | None = None
+    multiplex: MultiplexInbound | None = None
+    transport: Transport | None = None
+
+
+class Trojan(BaseInbound):
+    class User(BaseModel):
+        name: str
+        password: str
+
+    class Fallback(BaseModel):
+        server: str
+        server_port: int
+
+    type: Literal["trojan"] = "trojan"
+    users: list[User]
+    tls: TLSInbound | None = None
+    fallback: Fallback | None = None
+    fallback_for_alpn: dict[str, Fallback] | None = None
+    multiplex: MultiplexInbound | None = None
+    transport: Transport | None = None
+
+
+class Naive(BaseInbound):
+    class User(BaseModel):
+        username: str
+        password: str
+
+    type: Literal["naive"] = "naive"
+    network: Literal["tcp", "udp"] | None = None
+    users: list[User]
+    quic_congestion_control: (
+        Literal[
+            "bbr",
+            "bbr_standard",
+            "bbr2",
+            "bbr2_variant",
+            "cubic",
+            "reno",
+        ]
+        | None
+    ) = None
+    tls: TLSInbound | None = None
+
+
+class Hysteria(BaseInbound):
+    class User(BaseModel):
+        name: str | None = None
+        auth: str | None = None
+        auth_str: str | None = None
+
+    type: Literal["hysteria"] = "hysteria"
+    up: str
+    up_mbps: int
+    down: str
+    down_mbps: int
+    obfs: str | None = None
+    users: list[User] | None = None
+    recv_window_conn: int | None = None
+    recv_window_client: int | None = None
+    max_conn_client: int | None = None
+    disable_mtu_discovery: bool | None = None
+    tls: TLSInbound
+
+
+class ShadowTLS(BaseInbound):
+    class User(BaseModel):
+        name: str | None = None
+        password: str | None = None
+
+    class Handshake(DialFields):
+        server: str | None = None
+        server_port: int | None = None
+
+    type: Literal["shadowtls"] = "shadowtls"
+    version: Literal[1, 2, 3] | None = None
+    password: str | None = None
+    users: list[User] | None = None
+    handshake: Handshake
+    handshake_for_server_name: dict[str, Handshake] | None = None
+    strict_mode: bool | None = None
+    wildcard_sni: Literal["off", "authed", "all"] | None = None
+
+
+class TUIC(BaseInbound):
+    class User(BaseModel):
+        name: str | None = None
+        uuid: str
+        password: str | None = None
+
+    type: Literal["tuic"] = "tuic"
+    users: list[User]
+    congestion_control: Literal["cubic", "new_reno", "bbr"] | None = None
+    auth_timeout: str | None = None
+    zero_rtt_handshake: bool | None = None
+    heartbeat: str | None = None
+    tls: TLSInbound
+
+
+class Hysteria2(BaseInbound):
+    class Obfs(BaseModel):
+        type: Literal["salamander"] | None = None
+        password: str | None = None
+
+    class User(BaseModel):
+        name: str | None = None
+        password: str | None = None
+
+    class MasqueradeFile(BaseModel):
+        type: Literal["file"] = "file"
+        directory: str | None = None
+
+    class MasqueradeProxy(BaseModel):
+        type: Literal["proxy"] = "proxy"
+        url: str | None = None
+        rewrite_host: bool | None = None
+
+    class MasqueradeString(BaseModel):
+        type: Literal["string"] = "string"
+        status_code: int | None = None
+        headers: dict[str, Any] | None = None
+        content: str | None = None
+
+    type: Literal["hysteria2"] = "hysteria2"
+    up_mbps: int | None = None
+    down_mbps: int | None = None
+    obfs: Obfs | None = None
+    users: list[User] | None = None
+    ignore_client_bandwidth: bool | None = None
+    tls: TLSInbound
+    masquerade: str | MasqueradeFile | MasqueradeProxy | MasqueradeString | None = None
+    brutal_debug: bool | None = None
+
+
+class VLESS(BaseInbound):
+    class User(BaseModel):
+        name: str | None = None
+        uuid: str
+        flow: Literal["xtls-rprx-vision"] | None = None
+
+    type: Literal["vless"] = "vless"
+    users: list[User]
+    tls: TLSInbound | None = None
+    multiplex: MultiplexInbound | None = None
+    transport: Transport | None = None
+
+
+class AnyTLS(BaseInbound):
+    class User(BaseModel):
+        name: str | None = None
+        password: str | None = None
+
+    type: Literal["anytls"] = "anytls"
+    users: list[User]
+    padding_scheme: list[str] | None = None
+    tls: TLSInbound | None = None
+
+
+class Tun(BaseInbound):
+    class Platform(BaseModel):
+        class HTTPProxy(BaseModel):
+            enabled: bool | None = None
+            server: str
+            server_port: int
+            bypass_domain: list[str] | None = None
+            match_domain: list[str] | None = None
+
+        http_proxy: HTTPProxy | None = None
+
+    type: Literal["tun"] = "tun"
+    tag: str | None = None
+    interface_name: str | None = None
+    address: list[str] | None = None
+    inet4_address: list[str] | None = None
+    inet6_address: list[str] | None = None
+    mtu: int | None = None
+    gso: bool | None = None
+    auto_route: bool | None = None
+    iproute2_table_index: int | None = None
+    iproute2_rule_index: int | None = None
+    auto_redirect: bool | None = None
+    auto_redirect_input_mark: int | str | None = None
+    auto_redirect_output_mark: int | str | None = None
+    auto_redirect_reset_mark: int | str | None = None
+    auto_redirect_nfqueue: int | None = None
+    auto_redirect_iproute2_fallback_rule_index: int | None = None
+    exclude_mptcp: bool | None = None
+    loopback_address: list[str] | None = None
+    strict_route: bool | None = None
+    route_address: list[str] | None = None
+    inet4_route_address: list[str] | None = None
+    inet6_route_address: list[str] | None = None
+    route_exclude_address: list[str] | None = None
+    inet4_route_exclude_address: list[str] | None = None
+    inet6_route_exclude_address: list[str] | None = None
+    route_address_set: list[str] | None = None
+    route_exclude_address_set: list[str] | None = None
+    endpoint_independent_nat: bool | None = None
+    udp_timeout: str | None = None
+    stack: Literal["system", "gvisor", "mixed"] | None = None
+    include_interface: list[str] | None = None
+    exclude_interface: list[str] | None = None
+    include_uid: list[int] | None = None
+    include_uid_range: list[str] | None = None
+    exclude_uid: list[int] | None = None
+    exclude_uid_range: list[str] | None = None
+    include_android_user: list[int] | None = None
+    include_package: list[str] | None = None
+    exclude_package: list[str] | None = None
+    platform: Platform | None = None
+
+
+class Redirect(BaseInbound):
+    type: Literal["redirect"] = "redirect"
+
+
+class TProxy(BaseInbound):
+    type: Literal["tproxy"] = "tproxy"
+    network: Literal["tcp", "udp"] | None = None
+
+
+Inbound = Annotated[
+    Direct
+    | Mixed
+    | Socks
+    | HTTP
+    | Shadowsocks
+    | VMess
+    | Trojan
+    | Naive
+    | Hysteria
+    | ShadowTLS
+    | VLESS
+    | TUIC
+    | Hysteria2
+    | AnyTLS
+    | Tun
+    | Redirect
+    | TProxy,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/outbound/outbound.py
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel, DialFields, PosixResolvedPath, Transport, UDPOverTCP
+from singbox_models.base.multiplex import MultiplexOutbound
+from singbox_models.base.tls import TLSOutbound
+
+
+class BaseOutbound(DialFields):
+    tag: str | None = None
+
+
+class Direct(BaseOutbound):
+    type: Literal["direct"] = "direct"
+    override_address: str | None = None
+    override_port: int | None = None
+
+
+class Block(BaseModel):
+    type: Literal["block"] = "block"
+    tag: str | None = None
+
+
+class Socks(BaseOutbound):
+    type: Literal["socks"] = "socks"
+    server: str
+    server_port: int
+    version: Literal["4", "4a", "5"] | None = None
+    username: str | None = None
+    password: str | None = None
+    network: Literal["tcp", "udp"] | None = None
+    udp_over_tcp: bool | UDPOverTCP | None = None
+
+
+class HTTP(BaseOutbound):
+    type: Literal["http"] = "http"
+    server: str
+    server_port: int
+    username: str | None = None
+    password: str | None = None
+    path: str | None = None
+    headers: dict[str, Any] | None = None
+    tls: TLSOutbound | None = None
+
+
+class Shadowsocks(BaseOutbound):
+    type: Literal["shadowsocks"] = "shadowsocks"
+    server: str
+    server_port: int
+    method: Literal[
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "2022-blake3-chacha20-poly1305",
+        "none",
+        "aes-128-gcm",
+        "aes-192-gcm",
+        "aes-256-gcm",
+        "chacha20-ietf-poly1305",
+        "xchacha20-ietf-poly1305",
+        "aes-128-ctr",
+        "aes-192-ctr",
+        "aes-256-ctr",
+        "aes-128-cfb",
+        "aes-192-cfb",
+        "aes-256-cfb",
+        "rc4-md5",
+        "chacha20-ietf",
+        "xchacha20",
+    ]
+    password: str
+    plugin: Literal["obfs-local", "v2ray-plugin"] | None = None
+    plugin_opts: str | None = None
+    network: Literal["tcp", "udp"] | None = None
+    udp_over_tcp: bool | UDPOverTCP | None = None
+    multiplex: MultiplexOutbound | None = None
+
+
+class VMess(BaseOutbound):
+    type: Literal["vmess"] = "vmess"
+    server: str
+    server_port: int
+    uuid: str
+    security: (
+        Literal[
+            "auto",
+            "none",
+            "zero",
+            "aes-128-gcm",
+            "chacha20-poly1305",
+            "aes-128-ctr",
+        ]
+        | None
+    ) = None
+    alter_id: int | None = None
+    global_padding: bool | None = None
+    authenticated_length: bool | None = None
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound | None = None
+    packet_encoding: Literal["", "packetaddr", "xudp"] | None = None
+    multiplex: MultiplexOutbound | None = None
+    transport: Transport | None = None
+
+
+class Trojan(BaseOutbound):
+    type: Literal["trojan"] = "trojan"
+    server: str
+    server_port: int
+    password: str
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound | None = None
+    multiplex: MultiplexOutbound | None = None
+    transport: Transport | None = None
+
+
+class WireGuard(BaseOutbound):
+    class Peer(BaseModel):
+        server: str | None = None
+        server_port: int | None = None
+        public_key: str
+        pre_shared_key: str | None = None
+        allowed_ips: list[str] | None = None
+        reserved: list[int] | None = None
+
+    type: Literal["wireguard"] = "wireguard"
+    server: str | None = None
+    server_port: int | None = None
+    system_interface: bool | None = None
+    interface_name: str | None = None
+    gso: bool | None = None
+    local_address: list[str]
+    private_key: str
+    peers: list[Peer] | None = None
+    peer_public_key: str | None = None
+    pre_shared_key: str | None = None
+    reserved: list[int] | None = None
+    workers: int | None = None
+    mtu: int | None = None
+    network: Literal["tcp", "udp"] | None = None
+
+
+class Hysteria(BaseOutbound):
+    type: Literal["hysteria"] = "hysteria"
+    server: str
+    server_port: int
+    server_ports: list[str] | None = None
+    hop_interval: str | None = None
+    up: str
+    up_mbps: int
+    down: str
+    down_mbps: int
+    obfs: str | None = None
+    auth: str | None = None
+    auth_str: str | None = None
+    recv_window_conn: int | None = None
+    recv_window: int | None = None
+    disable_mtu_discovery: bool | None = None
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound
+
+
+class ShadowTLS(BaseOutbound):
+    type: Literal["shadowtls"] = "shadowtls"
+    server: str
+    server_port: int
+    version: Literal[1, 2, 3] | None = None
+    password: str | None = None
+    tls: TLSOutbound
+
+
+class VLESS(BaseOutbound):
+    type: Literal["vless"] = "vless"
+    server: str
+    server_port: int
+    uuid: str
+    flow: Literal["xtls-rprx-vision"] | None = None
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound | None = None
+    packet_encoding: Literal["", "packetaddr", "xudp"] | None = None
+    multiplex: MultiplexOutbound | None = None
+    transport: Transport | None = None
+
+
+class TUIC(BaseOutbound):
+    type: Literal["tuic"] = "tuic"
+    server: str
+    server_port: int
+    uuid: str
+    password: str | None = None
+    congestion_control: Literal["cubic", "new_reno", "bbr"] | None = None
+    udp_relay_mode: Literal["native", "quic"] | None = None
+    udp_over_stream: bool | None = None
+    zero_rtt_handshake: bool | None = None
+    heartbeat: str | None = None
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound
+
+
+class Hysteria2(BaseOutbound):
+    class Obfs(BaseModel):
+        type: Literal["salamander"] | None = None
+        password: str | None = None
+
+    type: Literal["hysteria2"] = "hysteria2"
+    server: str
+    server_port: int
+    server_ports: list[str] | None = None
+    hop_interval: str | None = None
+    up_mbps: int | None = None
+    down_mbps: int | None = None
+    obfs: Obfs | None = None
+    password: str | None = None
+    network: Literal["tcp", "udp"] | None = None
+    tls: TLSOutbound
+    brutal_debug: bool | None = None
+
+
+class AnyTLS(BaseOutbound):
+    type: Literal["anytls"] = "anytls"
+    server: str
+    server_port: int
+    password: str
+    idle_session_check_interval: str | None = None
+    idle_session_timeout: str | None = None
+    min_idle_session: int | None = None
+    tls: TLSOutbound
+
+
+class Tor(BaseOutbound):
+    type: Literal["tor"] = "tor"
+    executable_path: PosixResolvedPath | None = None
+    extra_args: list[str] | None = None
+    data_directory: PosixResolvedPath | None = None
+    torrc: dict[str, Any] | None = None
+
+
+class SSH(BaseOutbound):
+    type: Literal["ssh"] = "ssh"
+    server: str
+    server_port: int | None = None
+    user: str | None = None
+    password: str | None = None
+    private_key: str | None = None
+    private_key_path: PosixResolvedPath | None = None
+    private_key_passphrase: str | None = None
+    host_key: list[str] | None = None
+    host_key_algorithms: list[str] | None = None
+    client_version: str | None = None
+
+
+class DNS(BaseModel):
+    type: Literal["dns"] = "dns"
+    tag: str | None = None
+
+
+class Selector(BaseModel):
+    type: Literal["selector"] = "selector"
+    tag: str | None = None
+    outbounds: list[str]
+    default: str | None = None
+    interrupt_exist_connections: bool | None = None
+
+
+class URLTest(BaseModel):
+    type: Literal["urltest"] = "urltest"
+    tag: str | None = None
+    outbounds: list[str]
+    url: str | None = None
+    interval: str | None = None
+    tolerance: int | None = None
+    idle_timeout: str | None = None
+    interrupt_exist_connections: bool | None = None
+
+
+class Naive(BaseOutbound):
+    type: Literal["naive"] = "naive"
+    server: str
+    server_port: int
+    username: str | None = None
+    password: str | None = None
+    insecure_concurrency: int | None = None
+    extra_headers: dict[str, Any] | None = None
+    udp_over_tcp: bool | UDPOverTCP | None = None
+    quic: bool | None = None
+    quic_congestion_control: (
+        Literal[
+            "bbr",
+            "bbr_standard",
+            "bbr2",
+            "bbr2_variant",
+            "cubic",
+            "reno",
+        ]
+        | None
+    ) = None
+    tls: TLSOutbound
+
+
+Outbound = Annotated[
+    Direct
+    | Block
+    | Socks
+    | HTTP
+    | Shadowsocks
+    | VMess
+    | Trojan
+    | WireGuard
+    | Hysteria
+    | ShadowTLS
+    | VLESS
+    | TUIC
+    | Hysteria2
+    | AnyTLS
+    | Tor
+    | SSH
+    | DNS
+    | Selector
+    | URLTest
+    | Naive,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/config.py
+from singbox_models.base import BaseModel
+from singbox_models.certificate import Certificate
+from singbox_models.dns import DNS
+from singbox_models.endpoint import Endpoint
+from singbox_models.experimental import Experimental
+from singbox_models.inbound import Inbound
+from singbox_models.log import Log
+from singbox_models.ntp import NTP
+from singbox_models.outbound import Outbound
+from singbox_models.route import Route
+from singbox_models.service import Service
+
+
+class Config(BaseModel):
+    log: Log | None = None
+    dns: DNS | None = None
+    ntp: NTP | None = None
+    certificate: Certificate | None = None
+    endpoints: list[Endpoint] | None = None
+    inbounds: list[Inbound]
+    outbounds: list[Outbound]
+    route: Route | None = None
+    services: list[Service] | None = None
+    experimental: Experimental | None = None
+
+
+# src/singbox_models/dns/dns.py
+from typing import Literal
+
+from singbox_models.base import BaseModel
+from singbox_models.dns.rules import Rule
+from singbox_models.dns.server import FakeIP, Server
+
+
+class DNS(BaseModel):
+    servers: list[Server] | None = None
+    rules: list[Rule] | None = None
+    fakeip: FakeIP | None = None
+    final: str | None = None
+    strategy: Literal["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"] | None = None
+    disable_cache: bool | None = None
+    disable_expire: bool | None = None
+    independent_cache: bool | None = None
+    cache_capacity: int | None = None
+    reverse_mapping: bool | None = None
+    client_subnet: str | None = None
+
+
+# src/singbox_models/base/udp_over_tcp.py
+from typing import Literal
+
+from singbox_models.base.base import BaseModel
+
+
+class UDPOverTCP(BaseModel):
+    enabled: bool | None = None
+    version: Literal[1, 2] | None = None
+
+
+# src/singbox_models/inbound/__init__.py
+from .inbound import Inbound
+
+__all__ = ["Inbound"]
+
+
+# src/singbox_models/certificate/certificate.py
+from typing import Literal
+
+from singbox_models.base import BaseModel, PosixResolvedPath
+
+
+class Certificate(BaseModel):
+    store: Literal["system", "mozilla", "chrome", ""] | None = None
+    certificate: list[str] | None = None
+    certificate_path: list[PosixResolvedPath] | None = None
+    certificate_directory_path: list[PosixResolvedPath] | None = None
+
+
+# src/singbox_models/base/path.py
+from pathlib import Path
+from typing import Annotated
+
+from pydantic import PlainSerializer
+
+PosixResolvedPath = Annotated[
+    Path,
+    PlainSerializer(lambda path: path.resolve().as_posix(), return_type=str),
+]
+
+
+# src/singbox_models/base/multiplex.py
+from typing import Literal
+
+from singbox_models.base.base import BaseModel
+
+
+class Brutal(BaseModel):
+    enabled: bool | None = None
+    up_mbps: int | None = None
+    down_mbps: int | None = None
+
+
+class MultiplexInbound(BaseModel):
+    enabled: bool | None = None
+    padding: bool | None = None
+    brutal: Brutal | None = None
+
+
+class MultiplexOutbound(BaseModel):
+    enabled: bool | None = None
+    protocol: Literal["smux", "yamux", "h2mux"] | None = None
+    max_connections: int | None = None
+    min_streams: int | None = None
+    max_streams: int | None = None
+    padding: bool | None = None
+    brutal: Brutal | None = None
+
+
+Multiplex = MultiplexInbound | MultiplexOutbound
+
+
+# src/singbox_models/base/dial_fields.py
+from typing import Literal
+
+from .base import BaseModel
+
+
+class DomainResolver(BaseModel):
+    server: str
+    strategy: Literal["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"]
+    disable_cache: bool | None = None
+    rewrite_ttl: None = None
+    client_subnet: None = None
+
+
+class DialFields(BaseModel):
+    detour: str | None = None
+    inet4_bind_address: str | None = None
+    inet6_bind_address: str | None = None
+    bind_address_no_port: bool | None = None
+    routing_mark: int | None = None
+    reuse_addr: bool | None = None
+    netns: str | None = None
+    connect_timeout: str | None = None
+    tcp_fast_open: bool | None = None
+    tcp_multi_path: bool | None = None
+    disable_tcp_keep_alive: bool | None = None
+    tcp_keep_alive: str | None = None
+    tcp_keep_alive_interval: str | None = None
+    udp_fragment: bool | None = None
+
+    domain_resolver: str | DomainResolver | None = None
+    network_strategy: Literal["default", "hybrid", "fallback"] | None = None
+    network_type: Literal["wifi", "cellular", "ethernet", "other"] | None = None
+    fallback_network_type: Literal["wifi", "cellular", "ethernet"] | None = None
+    fallback_delay: str | None = None
+
+
+# src/singbox_models/dns/__init__.py
+from .dns import DNS
+
+__all__ = ["DNS"]
+
+
+# src/singbox_models/endpoint/endpoint.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel, DialFields, PosixResolvedPath
+
+
+class BaseEndpoint(DialFields):
+    tag: str | None = None
+
+
+class WireGuard(BaseEndpoint, DialFields):
+    class Peer(BaseModel):
+        address: str | None = None
+        port: int | None = None
+        public_key: str
+        pre_shared_key: str | None = None
+        allowed_ips: list[str]
+        persistent_keepalive_interval: int | None = None
+        reserved: list[int] | None = None
+
+    type: Literal["wireguard"] = "wireguard"
+    system: bool | None = None
+    name: str | None = None
+    mtu: int | None = None
+    address: list[str]
+    private_key: str
+    listen_port: int | None = None
+    peers: list[Peer]
+    udp_timeout: str | None = None
+    workers: int | None = None
+
+
+class Tailscale(BaseEndpoint, DialFields):
+    type: Literal["tailscale"] = "tailscale"
+    state_directory: PosixResolvedPath | None = None
+    auth_key: str | None = None
+    control_url: str | None = None
+    ephemeral: bool | None = None
+    hostname: str | None = None
+    accept_routes: bool | None = None
+    exit_node: str | None = None
+    exit_node_allow_lan_access: bool | None = None
+    advertise_routes: list[str] | None = None
+    advertise_exit_node: bool | None = None
+    advertise_tags: list[str] | None = None
+    relay_server_port: int | None = None
+    relay_server_static_endpoints: list[str] | None = None
+    system_interface: bool | None = None
+    system_interface_name: str | None = None
+    system_interface_mtu: int | None = None
+    udp_timeout: str | None = None
+
+
+Endpoint = Annotated[WireGuard | Tailscale, Field(discriminator="type")]
+
+
+# src/singbox_models/log/log.py
+from typing import Literal
+
+from singbox_models.base import BaseModel, PosixResolvedPath
+
+
+class Log(BaseModel):
+    disabled: bool | None = None
+    level: Literal["trace", "debug", "info", "warn", "error", "fatal", "panic"] | None = None
+    output: PosixResolvedPath | None = None
+    timestamp: bool | None = None
+
+
+# src/singbox_models/route/route.py
+# src/singbox_models/route/route.py
+from typing import Literal
+
+from singbox_models.base import BaseModel
+from singbox_models.base.dial_fields import DomainResolver
+from singbox_models.route.rule import Rule
+from singbox_models.route.rule_set import RuleSet
+
+
+class Route(BaseModel):
+    rules: list[Rule] | None = None
+    rule_set: list[RuleSet] | None = None
+    final: str | None = None
+    auto_detect_interface: bool | None = None
+    override_android_vpn: bool | None = None
+    default_interface: str | None = None
+    default_mark: int | None = None
+    find_process: bool | None = None
+    default_domain_resolver: str | DomainResolver | None = None
+    default_network_strategy: Literal["default", "hybrid", "fallback"] | None = None
+    default_network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    default_fallback_network_type: list[Literal["wifi", "cellular", "ethernet"]] | None = None
+    default_fallback_delay: str | None = None
+
+
+# src/singbox_models/service/__init__.py
+from .service import Service
+
+__all__ = ["Service"]
+
+
+# src/singbox_models/experimental/__init__.py
+from .experimental import Experimental
+
+__all__ = ["Experimental"]
+
+
+# src/singbox_models/base/__init__.py
+from singbox_models.base.base import BaseModel
+from singbox_models.base.dial_fields import DialFields
+from singbox_models.base.dns01 import DNS01
+from singbox_models.base.listen_fields import ListenFields
+from singbox_models.base.multiplex import Multiplex
+from singbox_models.base.path import PosixResolvedPath
+from singbox_models.base.tls import TLS
+from singbox_models.base.transport import Transport
+from singbox_models.base.udp_over_tcp import UDPOverTCP
+
+__all__ = [
+    "BaseModel",
+    "DialFields",
+    "DNS01",
+    "TLS",
+    "ListenFields",
+    "Multiplex",
+    "Transport",
+    "UDPOverTCP",
+    "PosixResolvedPath",
+]
+
+
+# src/singbox_models/certificate/__init__.py
+from .certificate import Certificate
+
+__all__ = ["Certificate"]
+
+
+# src/singbox_models/experimental/experimental.py
+from singbox_models.base import BaseModel, PosixResolvedPath
+
+
+class CacheFile(BaseModel):
+    enabled: bool | None = None
+    path: PosixResolvedPath | None = None
+    cache_id: str | None = None
+    store_fakeip: bool | None = None
+    store_rdrc: bool | None = None
+    rdrc_timeout: str | None = None
+
+
+class ClashAPI(BaseModel):
+    external_controller: str | None = None
+    external_ui: str | None = None
+    external_ui_download_url: str | None = None
+    external_ui_download_detour: str | None = None
+    secret: str | None = None
+    default_mode: str | None = None
+    access_control_allow_origin: list[str] | None = None
+    access_control_allow_private_network: bool | None = None
+
+    # Deprecated
+    store_mode: bool | None = None
+    store_selected: bool | None = None
+    store_fakeip: bool | None = None
+    cache_file: str | None = None
+    cache_id: str | None = None
+
+
+class V2RayAPI(BaseModel):
+    class Stats(BaseModel):
+        enabled: bool | None = None
+        inbounds: list[str] | None = None
+        outbounds: list[str] | None = None
+        users: list[str] | None = None
+
+    listen: str | None = None
+    stats: Stats | None = None
+
+
+class Experimental(BaseModel):
+    cache_file: CacheFile | None = None
+    clash_api: ClashAPI | None = None
+    v2ray_api: V2RayAPI | None = None
+
+
+# src/singbox_models/__init__.py
+from .config import Config
+
+from . import base
+from . import certificate
+from . import dns
+from . import endpoint
+from . import experimental
+from . import inbound
+from . import log
+from . import ntp
+from . import outbound
+from . import route
+from . import service
+
+__all__ = [
+    "Config",
+    "base",
+    "certificate",
+    "dns",
+    "endpoint",
+    "experimental",
+    "inbound",
+    "log",
+    "ntp",
+    "outbound",
+    "route",
+    "service",
+]
+
+# src/singbox_models/dns/server.py
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from singbox_models.base import TLS, BaseModel, DialFields, PosixResolvedPath
+
+
+class BaseServer(BaseModel):
+    tag: str | None = None
+
+
+class Local(BaseServer, DialFields):
+    type: Literal["local"] = "local"
+    prefer_go: bool | None = None
+
+
+class Hosts(BaseServer):
+    type: Literal["hosts"] = "hosts"
+    path: list[PosixResolvedPath] | None = None
+    predefined: dict[str, list[str] | str]
+
+
+class TCP(BaseServer, DialFields):
+    type: Literal["tcp"] = "tcp"
+    server: str
+    server_port: int | None = None
+
+
+class UDP(BaseServer, DialFields):
+    type: Literal["udp"] = "udp"
+    server: str
+    server_port: int | None = None
+
+
+class TLSServer(BaseServer, DialFields):
+    type: Literal["tls"] = "tls"
+    server: str
+    server_port: int | None = None
+    tls: TLS | None = None
+
+
+class QUIC(BaseServer, DialFields):
+    type: Literal["quic"] = "quic"
+    server: str
+    server_port: int | None = None
+    tls: TLS | None = None
+
+
+class HTTPS(BaseServer, DialFields):
+    type: Literal["https"] = "https"
+    server: str
+    server_port: int | None = None
+    path: str | None = None
+    headers: dict[str, Any] | None = None
+    tls: TLS | None = None
+
+
+class HTTP3(BaseServer, DialFields):
+    type: Literal["h3"] = "h3"
+    server: str
+    server_port: int | None = None
+    path: str | None = None
+    headers: dict[str, Any] | None = None
+    tls: TLS | None = None
+
+
+class DHCP(BaseServer, DialFields):
+    type: Literal["dhcp"] = "dhcp"
+    interface: str | None = None
+
+
+class FakeIP(BaseServer):
+    type: Literal["fakeip"] = "fakeip"
+    inet4_range: str | None = None
+    inet6_range: str | None = None
+
+
+class Tailscale(BaseServer):
+    type: Literal["tailscale"] = "tailscale"
+    endpoint: str
+    accept_default_resolvers: bool | None = None
+
+
+class Resolved(BaseServer):
+    type: Literal["resolved"] = "resolved"
+    service: str
+    accept_default_resolvers: bool | None = None
+
+
+Server = Annotated[
+    Local | Hosts | TCP | UDP | TLSServer | QUIC | HTTPS | HTTP3 | DHCP | FakeIP | Tailscale | Resolved,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/outbound/__init__.py
+from .outbound import Outbound
+
+__all__ = ["Outbound"]
+
+
+# src/singbox_models/base/transport.py
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from singbox_models.base.base import BaseModel
+
+
+class HTTPTransport(BaseModel):
+    type: Literal["http"] = "http"
+    host: list[str] | None = None
+    path: str | None = None
+    method: str | None = None
+    headers: dict[str, Any] | None = None
+    idle_timeout: str | None = None
+    ping_timeout: str | None = None
+
+
+class WebSocketTransport(BaseModel):
+    type: Literal["ws"] = "ws"
+    path: str | None = None
+    headers: dict[str, Any] | None = None
+    max_early_data: int | None = None
+    early_data_header_name: str | None = None
+
+
+class QUICTransport(BaseModel):
+    type: Literal["quic"] = "quic"
+
+
+class GRPCTransport(BaseModel):
+    type: Literal["grpc"] = "grpc"
+    service_name: str | None = None
+    idle_timeout: str | None = None
+    ping_timeout: str | None = None
+    permit_without_stream: bool | None = None
+
+
+class HTTPUpgradeTransport(BaseModel):
+    type: Literal["httpupgrade"] = "httpupgrade"
+    host: str | None = None
+    path: str | None = None
+    headers: dict[str, Any] | None = None
+
+
+Transport = Annotated[
+    HTTPTransport | WebSocketTransport | QUICTransport | GRPCTransport | HTTPUpgradeTransport,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/base/tls.py
+from typing import Literal
+
+from singbox_models.base.base import BaseModel
+from singbox_models.base.dial_fields import DialFields
+from singbox_models.base.dns01 import DNS01
+from singbox_models.base.path import PosixResolvedPath
+
+TLSVersion = Literal["1.0", "1.1", "1.2", "1.3"]
+CipherSuite = Literal[
+    "TLS_RSA_WITH_AES_128_CBC_SHA",
+    "TLS_RSA_WITH_AES_256_CBC_SHA",
+    "TLS_RSA_WITH_AES_128_GCM_SHA256",
+    "TLS_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_CHACHA20_POLY1305_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+]
+
+
+class TLSBase(BaseModel):
+    enabled: bool | None = None
+    server_name: str | None = None
+    alpn: list[str] | None = None
+    min_version: TLSVersion | None = None
+    max_version: TLSVersion | None = None
+    cipher_suites: list[CipherSuite] | CipherSuite | None = None
+    curve_preferences: list[Literal["P256", "P384", "P521", "X25519", "X25519MLKEM768"]] | None = None
+    certificate_path: PosixResolvedPath | None = None
+    kernel_tx: bool | None = None
+    kernel_rx: bool | None = None
+
+
+# Inbound
+class AcmeInboud(BaseModel):
+    class ExternalAccount(BaseModel):
+        key_id: str | None = None
+        mac_key: str | None = None
+
+    domain: list[str] | None = None
+    data_directory: PosixResolvedPath | None = None
+    default_server_name: str | None = None
+    email: str | None = None
+    provider: Literal["letsencrypt", "zerossl"] | str | None = None  # noqa: PYI051
+    disable_http_challenge: bool | None = None
+    disable_tls_alpn_challenge: bool | None = None
+    alternative_http_port: int | None = None
+    alternative_tls_port: int | None = None
+    external_account: ExternalAccount | None = None
+    dns01_challenge: DNS01 | None = None
+
+
+class EchInbound(BaseModel):
+    enabled: bool | None = None
+    key: list[str] | None = None
+    key_path: PosixResolvedPath | None = None
+
+
+class RealityInbound(BaseModel):
+    class Handshake(DialFields):
+        server: str
+        server_port: int
+
+    enabled: bool | None = None
+    private_key: str
+    short_id: list[str]
+    max_time_difference: str | None = None
+    handshake: Handshake
+
+
+class TLSInbound(TLSBase):
+    certificate: list[str] | None = None
+    key: str | None = None
+    key_path: PosixResolvedPath | None = None
+    client_authentication: Literal["no", "request", "require-any", "verify-if-given", "require-and-verify"] | None = (
+        None
+    )
+    client_certificate: list[str] | None = None
+    client_certificate_path: PosixResolvedPath | None = None
+    client_certificate_public_key_sha256: list[str] | None = None
+    acme: AcmeInboud | None = None
+    ech: EchInbound | None = None
+    reality: RealityInbound | None = None
+
+
+# Outbound
+class EchOutbound(BaseModel):
+    enabled: bool | None = None
+    config: list[str] | None = None
+    config_path: PosixResolvedPath | None = None
+    query_server_name: str | None = None
+
+
+class RealityOutbound(BaseModel):
+    enabled: bool | None = None
+    public_key: str
+    short_id: str
+
+
+class TLSOutbound(TLSBase):
+    disable_sni: bool | None = None
+    insecure: bool | None = None
+    certificate: str | None = None
+    certificate_public_key_sha256: list[str] | None = None
+    client_certificate: list[str] | None = None
+    client_certificate_path: PosixResolvedPath | None = None
+    client_key: list[str] | None = None
+    client_key_path: PosixResolvedPath | None = None
+    fragment: bool | None = None
+    fragment_fallback_delay: str | None = None
+    record_fragment: bool | None = None
+    ech: EchOutbound | None = None
+    reality: RealityOutbound | None = None
+
+
+TLS = TLSInbound | TLSOutbound
+
+
+# src/singbox_models/base/base.py
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import ConfigDict
+
+
+class BaseModel(PydanticBaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+# src/singbox_models/base/dns01.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base.base import BaseModel
+
+
+class AliDNS(BaseModel):
+    provider: Literal["alidns"] = "alidns"
+    access_key_id: str | None = None
+    access_key_secret: str | None = None
+    region_id: str | None = None
+    security_token: str | None = None
+
+
+class CloudflareDNS(BaseModel):
+    provider: Literal["cloudflare"] = "cloudflare"
+    access_token: str | None = None
+    zone_token: str | None = None
+
+
+class AcmeDNS(BaseModel):
+    provider: Literal["acmedns"] = "acmedns"
+    username: str | None = None
+    password: str | None = None
+    subdomain: str | None = None
+    server_url: str | None = None
+
+
+DNS01 = Annotated[AliDNS | CloudflareDNS | AcmeDNS, Field(discriminator="provider")]
+
+
+# src/singbox_models/route/rule_set.py
+# src/singbox_models/route/rule_set.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel
+
+
+class DefaultHeadlessRule(BaseModel):
+    query_type: list[int | str] | None = None
+    network: list[Literal["tcp", "udp"]] | None = None
+    domain: list[str] | None = None
+    domain_suffix: list[str] | None = None
+    domain_keyword: list[str] | None = None
+    domain_regex: list[str] | None = None
+    source_ip_cidr: list[str] | None = None
+    ip_cidr: list[str] | None = None
+    source_port: list[int] | None = None
+    source_port_range: list[str] | None = None
+    port: list[int] | None = None
+    port_range: list[str] | None = None
+    process_name: list[str] | None = None
+    process_path: list[str] | None = None
+    process_path_regex: list[str] | None = None
+    package_name: list[str] | None = None
+    network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    network_is_expensive: bool | None = None
+    network_is_constrained: bool | None = None
+    network_interface_address: dict[str, list[str]] | None = None
+    default_interface_address: list[str] | None = None
+    wifi_ssid: list[str] | None = None
+    wifi_bssid: list[str] | None = None
+    invert: bool | None = None
+
+
+class LogicalHeadlessRule(BaseModel):
+    type: Literal["logical"] = "logical"
+    mode: Literal["and", "or"] | None = None
+    rules: list[DefaultHeadlessRule] | None = None
+    invert: bool | None = None
+
+
+HeadlessRule = DefaultHeadlessRule | LogicalHeadlessRule
+
+
+class InlineRuleSet(BaseModel):
+    type: Literal["inline"] = "inline"
+    tag: str
+    rules: list[HeadlessRule]
+
+
+class LocalRuleSet(BaseModel):
+    type: Literal["local"] = "local"
+    tag: str
+    format: Literal["source", "binary"] | None = None
+    path: str
+
+
+class RemoteRuleSet(BaseModel):
+    type: Literal["remote"] = "remote"
+    tag: str
+    format: Literal["source", "binary"] | None = None
+    url: str
+    download_detour: str | None = None
+    update_interval: str | None = None
+
+
+RuleSet = Annotated[
+    InlineRuleSet | LocalRuleSet | RemoteRuleSet,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/base/listen_fields.py
+from singbox_models.base.base import BaseModel
+
+
+class ListenFields(BaseModel):
+    listen: str
+    listen_port: int | None = None
+    bind_interface: str | None = None
+    routing_mark: int | str | None = None
+    reuse_addr: bool | None = None
+    netns: str | None = None
+    tcp_fast_open: bool | None = None
+    tcp_multi_path: bool | None = None
+    disable_tcp_keep_alive: bool | None = None
+    tcp_keep_alive: str | None = None
+    tcp_keep_alive_interval: str | None = None
+    udp_fragment: bool | None = None
+    udp_timeout: str | None = None
+    detour: str | None = None
+
+
+# src/singbox_models/service/service.py
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel, DialFields, ListenFields, PosixResolvedPath
+from singbox_models.base.tls import TLSInbound, TLSOutbound
+
+
+class BaseService(ListenFields):
+    tag: str | None = None
+
+
+class DERP(BaseService):
+    class VerifyClientURL(DialFields):
+        url: str
+
+    class MeshWith(DialFields):
+        server: str
+        server_port: int
+        host: str | None = None
+        tls: TLSOutbound | None = None
+
+    class Stun(ListenFields):
+        enabled: bool
+
+    type: Literal["derp"] = "derp"
+    tls: TLSInbound | None = None
+    config_path: PosixResolvedPath
+    verify_client_endpoint: list[str] | None = None
+    verify_client_url: list[str | VerifyClientURL] | None = None
+    home: str | None = None
+    mesh_with: list[MeshWith] | None = None
+    mesh_psk: str | None = None
+    mesh_psk_file: PosixResolvedPath | None = None
+    stun: int | Stun | None = None
+
+
+class Resolved(BaseService):
+    type: Literal["resolved"] = "resolved"
+
+
+class SSMAPI(BaseService):
+    type: Literal["ssm-api"] = "ssm-api"
+    servers: dict[str, str]
+    cache_path: PosixResolvedPath | None = None
+    tls: TLSInbound | None = None
+
+
+class CCM(BaseService):
+    class User(BaseModel):
+        name: str | None = None
+        token: str | None = None
+
+    type: Literal["ccm"] = "ccm"
+    credential_path: PosixResolvedPath | None = None
+    usages_path: PosixResolvedPath | None = None
+    users: list[User] | None = None
+    headers: dict[str, Any] | None = None
+    detour: str | None = None
+    tls: TLSInbound | None = None
+
+
+class OCM(BaseService):
+    class User(BaseModel):
+        name: str | None = None
+        token: str | None = None
+
+    type: Literal["ocm"] = "ocm"
+    credential_path: PosixResolvedPath | None = None
+    usages_path: PosixResolvedPath | None = None
+    users: list[User] | None = None
+    headers: dict[str, Any] | None = None
+    detour: str | None = None
+    tls: TLSInbound | None = None
+
+
+Service = Annotated[
+    DERP | Resolved | SSMAPI | CCM | OCM,
+    Field(discriminator="type"),
+]
+
+
+# src/singbox_models/dns/rules.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel
+
+
+class RouteAction(BaseModel):
+    action: Literal["route"] = "route"
+    server: str
+    strategy: Literal["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"] | None = None
+    disable_cache: bool | None = None
+    rewrite_ttl: None = None
+    client_subnet: None = None
+
+
+class RouteOptionsAction(BaseModel):
+    action: Literal["route-options"] = "route-options"
+    disable_cache: bool | None = None
+    rewrite_ttl: None = None
+    client_subnet: None = None
+
+
+class RejectAction(BaseModel):
+    action: Literal["reject"] = "reject"
+    method: Literal["default", "drop"] | None = None
+    no_drop: bool | None = None
+
+
+class PredefinedAction(BaseModel):
+    action: Literal["predefined"] = "predefined"
+    rcode: Literal["NOERROR", "FORMERR", "SERVFAIL", "NXDOMAIN", "NOTIMP", "REFUSED"] | None = None
+    answer: list[str] | None = None
+    ns: list[str] | None = None
+    extra: list[str] | None = None
+
+
+Action = Annotated[RouteAction | RouteOptionsAction | RejectAction | PredefinedAction, Field(discriminator="action")]
+
+
+class DefaultRule(BaseModel):
+    inbound: list[str] | None = None
+    ip_version: Literal[4, 6] | None = None
+    query_type: list[int | str] | None = None
+    network: Literal["tcp", "udp"] | None = None
+    auth_user: list[str] | None = None
+    protocol: list[str] | None = None
+    domain: list[str] | None = None
+    domain_suffix: list[str] | None = None
+    domain_keyword: list[str] | None = None
+    domain_regex: list[str] | None = None
+    source_ip_cidr: list[str] | None = None
+    source_ip_is_private: bool | None = None
+    ip_cidr: list[str] | None = None
+    ip_is_private: bool | None = None
+    ip_accept_any: bool | None = None
+    source_port: list[int] | None = None
+    source_port_range: list[str] | None = None
+    port: list[int] | None = None
+    port_range: list[str] | None = None
+    process_name: list[str] | None = None
+    process_path: list[str] | None = None
+    process_path_regex: list[str] | None = None
+    package_name: list[str] | None = None
+    user: list[str] | None = None
+    user_id: list[int] | None = None
+    clash_mode: str | None = None
+    network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    network_is_expensive: bool | None = None
+    network_is_constrained: bool | None = None
+    interface_address: dict[str, list[str]] | None = None
+    network_interface_address: dict[str, list[str]] | None = None
+    default_interface_address: list[str] | None = None
+    wifi_ssid: list[str] | None = None
+    wifi_bssid: list[str] | None = None
+    rule_set: list[str] | None = None
+    rule_set_ip_cidr_match_source: bool | None = None
+    rule_set_ip_cidr_accept_empty: bool | None = None
+    invert: bool | None = None
+    action: Action
+
+
+class LogicalRule(BaseModel):
+    type: Literal["logical"] = "logical"
+    mode: Literal["and", "or"] | None = None
+    rules: list[DefaultRule] | None = None
+    action: Action
+
+
+Rule = LogicalRule | DefaultRule
+
+
+# src/singbox_models/route/rule.py
+from typing import Annotated, Literal
+
+from pydantic import Field
+
+from singbox_models.base import BaseModel
+
+
+class RouteOptions(BaseModel):
+    override_address: str | None = None
+    override_port: int | None = None
+    network_strategy: Literal["default", "hybrid", "fallback"] | None = None
+    network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    fallback_network_type: list[Literal["wifi", "cellular", "ethernet"]] | None = None
+    fallback_delay: str | None = None
+    udp_disable_domain_unmapping: bool | None = None
+    udp_connect: bool | None = None
+    udp_timeout: str | None = None
+    tls_fragment: bool | None = None
+    tls_fragment_fallback_delay: str | None = None
+    tls_record_fragment: bool | None = None
+
+
+class RouteAction(RouteOptions):
+    action: Literal["route"] = "route"
+    outbound: str
+
+
+class BypassAction(RouteOptions):
+    action: Literal["bypass"] = "bypass"
+    outbound: str | None = None
+
+
+class RejectAction(BaseModel):
+    action: Literal["reject"] = "reject"
+    method: Literal["default", "drop", "reply"] | None = None
+    no_drop: bool | None = None
+
+
+class HijackDNSAction(BaseModel):
+    action: Literal["hijack-dns"] = "hijack-dns"
+
+
+class RouteOptionsAction(RouteOptions):
+    action: Literal["route-options"] = "route-options"
+
+
+class SniffAction(BaseModel):
+    action: Literal["sniff"] = "sniff"
+    sniffer: list[str] | None = None
+    timeout: str | None = None
+
+
+class ResolveAction(BaseModel):
+    action: Literal["resolve"] = "resolve"
+    server: str | None = None
+    strategy: Literal["prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"] | None = None
+    disable_cache: bool | None = None
+    rewrite_ttl: None = None
+    client_subnet: str | None = None
+
+
+Action = Annotated[
+    RouteAction | BypassAction | RejectAction | HijackDNSAction | RouteOptionsAction | SniffAction | ResolveAction,
+    Field(discriminator="action"),
+]
+
+
+class DefaultRule(BaseModel):
+    inbound: list[str] | None = None
+    ip_version: Literal[4, 6] | None = None
+    auth_user: list[str] | None = None
+    protocol: list[str] | None = None
+    client: list[str] | None = None
+    network: list[Literal["tcp", "udp", "icmp"]] | None = None
+    domain: list[str] | None = None
+    domain_suffix: list[str] | None = None
+    domain_keyword: list[str] | None = None
+    domain_regex: list[str] | None = None
+    geosite: list[str] | None = None
+    source_geoip: list[str] | None = None
+    geoip: list[str] | None = None
+    source_ip_cidr: list[str] | None = None
+    ip_is_private: bool | None = None
+    ip_cidr: list[str] | None = None
+    source_ip_is_private: bool | None = None
+    source_port: list[int] | None = None
+    source_port_range: list[str] | None = None
+    port: list[int] | None = None
+    port_range: list[str] | None = None
+    process_name: list[str] | None = None
+    process_path: list[str] | None = None
+    process_path_regex: list[str] | None = None
+    package_name: list[str] | None = None
+    user: list[str] | None = None
+    user_id: list[int] | None = None
+    clash_mode: str | None = None
+    network_type: list[Literal["wifi", "cellular", "ethernet", "other"]] | None = None
+    network_is_expensive: bool | None = None
+    network_is_constrained: bool | None = None
+    interface_address: dict[str, list[str]] | None = None
+    network_interface_address: dict[str, list[str]] | None = None
+    default_interface_address: list[str] | None = None
+    wifi_ssid: list[str] | None = None
+    wifi_bssid: list[str] | None = None
+    preferred_by: list[str] | None = None
+    rule_set: list[str] | None = None
+    rule_set_ipcidr_match_source: bool | None = None
+    rule_set_ip_cidr_match_source: bool | None = None
+    invert: bool | None = None
+    action: Action | None = None
+    outbound: str | None = None
+
+
+class LogicalRule(BaseModel):
+    type: Literal["logical"] = "logical"
+    mode: Literal["and", "or"] | None = None
+    rules: list[DefaultRule] | None = None
+    invert: bool | None = None
+    action: Action | None = None
+    outbound: str | None = None
+
+
+Rule = DefaultRule | LogicalRule
+
+
+# pyproject.toml
+[project]
+name = "singbox_models"
+version = "0.1"
+description = "Pydantic models for sing-box configuration. Current sing-box version: 1.13"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.12.5",
+]
+
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.38.4",
+    "ruff>=0.15.8",
+    "taskipy>=1.14.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+indent-width = 4
+respect-gitignore = true
+line-length = 120
+src = ["src"]
+extend-exclude = ["__pycache__"]
+
+[tool.ruff.format]
+docstring-code-format = true
+indent-style = "space"
+line-ending = "native"
+quote-style = "double"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D", "FIX", "RUF", "TD", "COM812", "S101", "ERA001", "PLR2004",
+    "E501", "T201", "S113", "S104", "TC001", "G004", "TC002", "UP047",
+    "EM102", "C901", "FBT002", "FBT003", "TC003", "TC006", "TRY301",
+    "EM101", "TRY003"
+]
+isort.split-on-trailing-comma = false
+
+[tool.basedpyright]
+reportUnannotatedClassAttribute = false
+reportUnknownMemberType = true
+reportAny = false
+reportExplicitAny = false
+
+
+[tool.taskipy.tasks]
+clean = "cleaner -u python --delete"
+lint = "ruff check --no-cache ."
+format = "ruff format --no-cache ."
+dump = "dumper .py .json .toml .ini .qml qmldir -id .venv -id .git -id .github"
+
+
+
+
+# src/singbox_models/route/__init__.py
+from .route import Route
+
+__all__ = ["Route"]
+
+
+# src/singbox_models/endpoint/__init__.py
+from .endpoint import Endpoint
+
+__all__ = ["Endpoint"]
+
+
