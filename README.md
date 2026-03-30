@@ -14,5 +14,5 @@ Pydantic models for sing-box configuration.
 ### With uv
 
 ```bash
-uv add "git+https://github.com/<you>/singbox_models.git@main"
+uv add "git+https://github.com/DasKaroWow/singbox_models.git@main"
 ```
