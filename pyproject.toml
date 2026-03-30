@@ -1,0 +1,60 @@
+[project]
+name = "singbox_models"
+version = "0.1"
+description = "Pydantic models for sing-box configuration. Current sing-box version: 1.13"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.12.5",
+]
+
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.38.4",
+    "ruff>=0.15.8",
+    "taskipy>=1.14.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+indent-width = 4
+respect-gitignore = true
+line-length = 120
+src = ["src"]
+extend-exclude = ["__pycache__"]
+
+[tool.ruff.format]
+docstring-code-format = true
+indent-style = "space"
+line-ending = "native"
+quote-style = "double"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D", "FIX", "RUF", "TD", "COM812", "S101", "ERA001", "PLR2004",
+    "E501", "T201", "S113", "S104", "TC001", "G004", "TC002", "UP047",
+    "EM102", "C901", "FBT002", "FBT003", "TC003", "TC006", "TRY301",
+    "EM101", "TRY003"
+]
+isort.split-on-trailing-comma = false
+
+[tool.basedpyright]
+reportUnannotatedClassAttribute = false
+reportUnknownMemberType = true
+reportAny = false
+reportExplicitAny = false
+
+
+[tool.taskipy.tasks]
+clean = "cleaner -u python --delete"
+lint = "ruff check --no-cache ."
+format = "ruff format --no-cache ."
+dump = "dumper .py .json .toml .ini .qml qmldir -id .venv -id .git -id .github"
+
+
