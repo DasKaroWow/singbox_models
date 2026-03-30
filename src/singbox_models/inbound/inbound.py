@@ -246,7 +246,7 @@ class AnyTLS(BaseInbound):
     tls: TLSInbound | None = None
 
 
-class Tun(BaseModel):
+class Tun(BaseInbound):
     class Platform(BaseModel):
         class HTTPProxy(BaseModel):
             enabled: bool | None = None
